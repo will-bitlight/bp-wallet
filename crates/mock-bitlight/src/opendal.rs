@@ -81,18 +81,21 @@ impl OpendalConfig {
 }
 
 #[derive(Debug)]
-struct OpendalContainer {
+pub struct OpendalContainer {
     operator: &'static OpendalOperator,
     user_id: String,
 }
 
 impl OpendalContainer {
-    async fn make_container(
-        user_id: String,
+    pub async fn make_container(
+        user_id: &str,
         config: OpendalConfig,
     ) -> io::Result<OpendalContainer> {
         let operator = config.opendal_operator().await;
-        Ok(OpendalContainer { operator, user_id })
+        Ok(OpendalContainer {
+            operator,
+            user_id: user_id.to_string(),
+        })
     }
 }
 
@@ -165,22 +168,22 @@ where for<'a> WalletCache<L2>: Serialize + Deserialize<'a>
     fn load(&self) -> Result<WalletCache<L2>, LoadError> {
         let data = block_in_place(|| {
             Handle::current().block_on(async {
-                let path = format!("{}/cache.toml", self.user_id);
-                let buffer = self.operator.inner.read(&path).await?;
+                let path = format!("{}/cache.yaml", self.user_id);
+                let buffer = self.operator.inner.read(&path).await.expect("");
                 let string = String::from_utf8(buffer.to_bytes().to_vec())
                     .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
                 Ok::<_, io::Error>(string)
             })
         })?;
-        Ok(toml::from_str(&data)?)
+        Ok(serde_yaml::from_str(&data).expect(""))
     }
 
     fn store(&self, object: &WalletCache<L2>) -> Result<(), StoreError> {
-        let data = toml::to_string_pretty(object).expect("");
+        let data = serde_yaml::to_string(object).expect("");
 
         block_in_place(move || {
             Handle::current().block_on(async move {
-                let path = format!("{}/cache.toml", self.user_id);
+                let path = format!("{}/cache.yaml", self.user_id);
                 self.operator.inner.write(&path, data.into_bytes()).await?;
                 Ok::<_, io::Error>(())
             })
@@ -192,18 +195,7 @@ where for<'a> WalletCache<L2>: Serialize + Deserialize<'a>
 impl StoreProvider<NoLayer2> for OpendalContainer
 where NoLayer2: Layer2
 {
-    fn load(&self) -> Result<NoLayer2, LoadError> {
-        let data = block_in_place(|| {
-            Handle::current().block_on(async {
-                let path = format!("{}/layer2.toml", self.user_id);
-                let buffer = self.operator.inner.read(&path).await?;
-                let string = String::from_utf8(buffer.to_bytes().to_vec())
-                    .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
-                Ok::<_, io::Error>(string)
-            })
-        })?;
-        Ok(serde_yaml::from_str(&data)?)
-    }
+    fn load(&self) -> Result<NoLayer2, LoadError> { Ok(None) }
 
     fn store(&self, object: &NoLayer2) -> Result<(), StoreError> {
         let data = serde_yaml::to_string(object)?;

@@ -403,7 +403,9 @@ where Self: Save
         // Not yet implemented:
         // self.cache.update::<B, K, D, L2>(&self.descr, &self.indexer)
 
-        WalletCache::with::<_, K, _, L2>(&self.descr, indexer).map(|cache| {
+        WalletCache::with::<_, K, _, L2>(&self.descr, indexer).map(|mut cache| {
+            let old_provider = self.cache.store_provider.take();
+            cache.store_provider = old_provider;
             self.cache = cache;
             self.set_dirty();
         })
@@ -683,9 +685,17 @@ pub mod fs {
             // }
 
             if self.dirty {
+                dbg!("Saving wallet");
+                // dbg!(&self.data);
+                // dbg!(&self.cache);
+                // dbg!(&self.layer2);
+                // dbg!(&self.cache.store_provider);
+
                 self.descr.store_provider.as_ref().map(|provider| provider.store(&self.descr));
                 self.data.store_provider.as_ref().map(|provider| provider.store(&self.data));
                 self.cache.store_provider.as_ref().map(|provider| provider.store(&self.cache));
+
+                dbg!("Saved wallet");
                 // TODO: layer2 store
             }
 

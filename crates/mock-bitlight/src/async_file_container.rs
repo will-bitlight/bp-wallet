@@ -11,7 +11,7 @@ use bpwallet::{
     WalletData, WalletDescr,
 };
 use serde::{Deserialize, Serialize};
-use tokio::fs::File;
+use tokio::fs::{create_dir_all, File};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::runtime::Handle;
 use tokio::sync::Mutex;
@@ -24,16 +24,41 @@ pub struct AsyncFileContainer {
 
 impl AsyncFileContainer {
     pub async fn make_container(
-        user_id: String,
+        user_id: &str,
     ) -> io::Result<(AsyncFileContainer, AsyncFileContainer, AsyncFileContainer)> {
         let user_path = PathBuf::from(format!("./{}", user_id));
+        create_dir_all(&user_path).await?;
+
         let descr_path = user_path.join("descr.toml");
         let data_path = user_path.join("data.toml");
-        let cache_path = user_path.join("cache.toml");
+        let cache_path = user_path.join("cache.yaml");
 
-        let descr_file = File::open(descr_path).await?;
-        let data_file = File::open(data_path).await?;
-        let cache_file = File::open(cache_path).await?;
+        let descr_file = File::options()
+            .append(false)
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .open(descr_path)
+            .await?;
+
+        let data_file = File::options()
+            .append(false)
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .open(data_path)
+            .await?;
+
+        let cache_file = File::options()
+            .append(false)
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .open(cache_path)
+            .await?;
 
         let descr_container = AsyncFileContainer {
             file: Arc::new(Mutex::new(descr_file)),
@@ -176,17 +201,7 @@ where for<'a> WalletCache<L2>: Serialize + Deserialize<'a>
 impl StoreProvider<NoLayer2> for AsyncFileContainer
 where NoLayer2: Layer2
 {
-    fn load(&self) -> Result<NoLayer2, LoadError> {
-        let data = block_in_place(|| {
-            Handle::current().block_on(async {
-                let mut string = String::new();
-                let mut file = self.file.lock().await;
-                file.read_to_string(&mut string).await?;
-                Ok::<_, io::Error>(string)
-            })
-        })?;
-        Ok(serde_yaml::from_str(&data)?)
-    }
+    fn load(&self) -> Result<NoLayer2, LoadError> { Ok(None) }
 
     fn store(&self, object: &NoLayer2) -> Result<(), StoreError> {
         let data = serde_yaml::to_string(object)?;
