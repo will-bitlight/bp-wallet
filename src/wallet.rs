@@ -34,6 +34,7 @@ use bpstd::{
 };
 use psbt::{PsbtConstructor, Utxo};
 
+use crate::persistence::StoreProvider;
 use crate::{
     BlockInfo, CoinRow, Indexer, Layer2, Layer2Cache, Layer2Data, Layer2Descriptor, MayError,
     MiningInfo, NoLayer2, TxRow, WalletAddr, WalletTx, WalletUtxo,
@@ -81,7 +82,7 @@ impl<'descr, K, D: Descriptor<K>> Iterator for AddrIter<'descr, K, D> {
         )
     )
 )]
-#[derive(Getters, Clone, Eq, PartialEq, Debug)]
+#[derive(Getters, Debug)]
 pub struct WalletDescr<K, D, L2 = NoLayer2>
 where
     D: Descriptor<K>,
@@ -92,6 +93,8 @@ where
     network: Network,
     layer2: L2,
     #[cfg_attr(feature = "serde", serde(skip))]
+    store_provider: Option<Box<dyn StoreProvider<Self>>>,
+    #[cfg_attr(feature = "serde", serde(skip))]
     _phantom: PhantomData<K>,
 }
 
@@ -101,6 +104,7 @@ impl<K, D: Descriptor<K>> WalletDescr<K, D, NoLayer2> {
             generator: descr,
             network,
             layer2: None,
+            store_provider: None,
             _phantom: PhantomData,
         }
     }
@@ -113,6 +117,7 @@ impl<K, D: Descriptor<K>, L2: Layer2Descriptor> WalletDescr<K, D, L2> {
             network,
             layer2,
             _phantom: PhantomData,
+            store_provider: None,
         }
     }
 
@@ -137,7 +142,7 @@ impl<K, D: Descriptor<K>, L2: Layer2Descriptor> DerefMut for WalletDescr<K, D, L
     fn deref_mut(&mut self) -> &mut Self::Target { &mut self.generator }
 }
 
-#[derive(Clone, Eq, PartialEq, Debug, Default)]
+#[derive(Debug, Default)]
 #[cfg_attr(
     feature = "serde",
     derive(serde::Serialize, serde::Deserialize),
@@ -155,6 +160,8 @@ pub struct WalletData<L2: Layer2Data> {
     pub addr_annotations: BTreeMap<Address, String>,
     pub layer2_annotations: L2,
     pub last_used: BTreeMap<Keychain, NormalIndex>,
+    #[cfg_attr(feature = "serde", serde(skip))]
+    store_provider: Option<Box<dyn StoreProvider<Self>>>,
 }
 
 #[cfg_attr(
@@ -166,7 +173,7 @@ pub struct WalletData<L2: Layer2Data> {
         bound(serialize = "L2: serde::Serialize", deserialize = "L2: serde::Deserialize<'de>")
     )
 )]
-#[derive(Clone, Eq, PartialEq, Debug)]
+#[derive(Debug)]
 pub struct WalletCache<L2: Layer2Cache> {
     pub last_block: MiningInfo,
     pub last_change: NormalIndex,
@@ -175,6 +182,8 @@ pub struct WalletCache<L2: Layer2Cache> {
     pub utxo: BTreeSet<Outpoint>,
     pub addr: BTreeMap<Keychain, BTreeSet<WalletAddr>>,
     pub layer2: L2,
+    #[cfg_attr(feature = "serde", serde(skip))]
+    store_provider: Option<Box<dyn StoreProvider<Self>>>,
 }
 
 impl<L2: Layer2Cache> Default for WalletCache<L2> {
@@ -191,6 +200,7 @@ impl<L2C: Layer2Cache> WalletCache<L2C> {
             utxo: none!(),
             addr: none!(),
             layer2: none!(),
+            store_provider: None,
         }
     }
 
@@ -260,7 +270,7 @@ pub trait Save {
     fn save(&self) -> Result<bool, Self::SaveErr>;
 }
 
-#[derive(Clone, Eq, PartialEq, Debug)]
+#[derive(Getters, Debug)]
 pub struct Wallet<K, D: Descriptor<K>, L2: Layer2 = NoLayer2>
 where Self: Save
 {
@@ -332,6 +342,23 @@ where Self: Save
             descr: WalletDescr::new_layer2(descr, l2_descr, network),
             data: empty!(),
             cache: WalletCache::new(),
+            layer2,
+            dirty: false,
+            #[cfg(feature = "fs")]
+            fs: None,
+        }
+    }
+
+    pub fn with(
+        descr: WalletDescr<K, D, L2::Descr>,
+        data: WalletData<L2::Data>,
+        cache: WalletCache<L2::Cache>,
+        layer2: L2,
+    ) -> Self {
+        Wallet {
+            descr,
+            data,
+            cache,
             layer2,
             dirty: false,
             #[cfg(feature = "fs")]
@@ -492,6 +519,10 @@ pub mod fs {
         #[from]
         Toml(toml::de::Error),
 
+        /// unable to parse YAML file - {0}
+        #[from]
+        Yaml(serde_yaml::Error),
+
         #[display(inner)]
         Layer2(L2),
 
@@ -563,6 +594,27 @@ pub mod fs {
         for<'de> L2::Data: serde::Serialize + serde::Deserialize<'de>,
         for<'de> L2::Cache: serde::Serialize + serde::Deserialize<'de>,
     {
+        pub fn make_descr_store_provider(
+            &mut self,
+            provider: impl StoreProvider<WalletDescr<K, D, L2::Descr>> + 'static,
+        ) {
+            self.descr.store_provider = Some(Box::new(provider));
+        }
+
+        pub fn make_data_store_provider(
+            &mut self,
+            provider: impl StoreProvider<WalletData<L2::Data>> + 'static,
+        ) {
+            self.data.store_provider = Some(Box::new(provider));
+        }
+
+        pub fn make_cache_store_provider(
+            &mut self,
+            provider: impl StoreProvider<WalletCache<L2::Cache>> + 'static,
+        ) {
+            self.cache.store_provider = Some(Box::new(provider));
+        }
+
         pub fn load(
             path: &Path,
             autosave: bool,
@@ -618,16 +670,23 @@ pub mod fs {
         type SaveErr = StoreError<L2::StoreError>;
 
         fn save(&self) -> Result<bool, StoreError<L2::StoreError>> {
-            let Some(path) = self.fs.as_ref().map(|fs| &fs.path) else {
-                return Ok(false);
-            };
+            // let Some(path) = self.fs.as_ref().map(|fs| &fs.path) else {
+            //     return Ok(false);
+            // };
+            // if self.dirty {
+            //     fs::create_dir_all(path)?;
+            //     let files = WalletFiles::new(path);
+            //     fs::write(files.descr, toml::to_string_pretty(&self.descr)?)?;
+            //     fs::write(files.data, toml::to_string_pretty(&self.data)?)?;
+            //     fs::write(files.cache, serde_yaml::to_string(&self.cache)?)?;
+            //     self.layer2.store(path).map_err(StoreError::Layer2)?;
+            // }
+
             if self.dirty {
-                fs::create_dir_all(path)?;
-                let files = WalletFiles::new(path);
-                fs::write(files.descr, toml::to_string_pretty(&self.descr)?)?;
-                fs::write(files.data, toml::to_string_pretty(&self.data)?)?;
-                fs::write(files.cache, serde_yaml::to_string(&self.cache)?)?;
-                self.layer2.store(path).map_err(StoreError::Layer2)?;
+                self.descr.store_provider.as_ref().map(|provider| provider.store(&self.descr));
+                self.data.store_provider.as_ref().map(|provider| provider.store(&self.data));
+                self.cache.store_provider.as_ref().map(|provider| provider.store(&self.cache));
+                // TODO: layer2 store
             }
 
             Ok(true)

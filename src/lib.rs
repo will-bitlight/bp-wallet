@@ -42,6 +42,8 @@ pub mod coinselect;
 pub mod cli;
 #[cfg(feature = "hot")]
 pub mod hot;
+#[cfg(feature = "fs")]
+pub mod persistence;
 mod bip43;
 
 pub use bip43::{Bip43, DerivationStandard, ParseBip43Error};
