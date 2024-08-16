@@ -7,7 +7,7 @@ use bpstd::Descriptor;
 use bpwallet::fs::{LoadError, StoreError};
 use bpwallet::persistence::StoreProvider;
 use bpwallet::{
-    Layer2, Layer2Cache, Layer2Data, Layer2Descriptor, NoLayer2, Save, Wallet, WalletCache,
+    Layer2, Layer2Cache, Layer2Data, Layer2Descriptor, NoLayer2, WalletCache,
     WalletData, WalletDescr,
 };
 use serde::{Deserialize, Serialize};

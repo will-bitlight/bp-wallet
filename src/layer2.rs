@@ -25,6 +25,8 @@ use std::error;
 use std::fmt::Debug;
 use std::path::Path;
 
+use crate::persistence::StoreProvider;
+
 pub trait Layer2: Debug {
     type Descr: Layer2Descriptor<LoadError = Self::LoadError, StoreError = Self::StoreError>;
     type Data: Layer2Data<LoadError = Self::LoadError, StoreError = Self::StoreError>;
@@ -35,6 +37,30 @@ pub trait Layer2: Debug {
     fn load(path: &Path) -> Result<Self, Self::LoadError>
     where Self: Sized;
     fn store(&self, path: &Path) -> Result<(), Self::StoreError>;
+
+    fn load_from_store_provider(
+        store_provider: &impl StoreProvider<Self>,
+    ) -> Result<Self, Self::LoadError>
+    where Self: Sized;
+
+    fn store_by_store_provider(
+        &self,
+        store_provider: &Box<dyn StoreProvider<Self>>,
+    ) -> Result<(), Self::StoreError>
+    where
+        Self: Sized;
+
+    fn make_data_store_provider(
+        &self,
+        store_provider: impl StoreProvider<Self>,
+    )
+    where
+        Self: Sized;
+
+    fn get_data_store_provider(&self) -> Option<&Box<dyn StoreProvider<Self>>>
+    where Self: Sized {
+        None
+    }
 }
 
 pub trait Layer2Descriptor: Debug {
@@ -103,6 +129,21 @@ impl Layer2 for NoLayer2 {
 
     fn load(_: &Path) -> Result<Self, Self::LoadError> { Ok(None) }
     fn store(&self, _: &Path) -> Result<(), Self::StoreError> { Ok(()) }
+    fn load_from_store_provider(_: &impl StoreProvider<Self>) -> Result<Self, Self::LoadError> {
+        Ok(None)
+    }
+    fn store_by_store_provider(
+        &self,
+        _: &Box<dyn StoreProvider<Self>>,
+    ) -> Result<(), Self::StoreError> {
+        Ok(())
+    }
+    fn make_data_store_provider(
+        &self,
+        _: impl StoreProvider<Self>,
+    ) {
+        ()
+    }
 }
 
 impl Layer2Descriptor for NoLayer2 {

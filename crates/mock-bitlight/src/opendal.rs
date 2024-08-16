@@ -1,23 +1,20 @@
 use std::fmt::Debug;
 use std::io;
 use std::path::PathBuf;
-use std::sync::Arc;
 
 use bpstd::Descriptor;
 use bpwallet::fs::{LoadError, StoreError};
 use bpwallet::persistence::StoreProvider;
 use bpwallet::{
-    Layer2, Layer2Cache, Layer2Data, Layer2Descriptor, NoLayer2, Save, Wallet, WalletCache,
+    Layer2, Layer2Cache, Layer2Data, Layer2Descriptor, NoLayer2, WalletCache,
     WalletData, WalletDescr,
 };
 use opendal::layers::RetryLayer;
 use opendal::services::{Fs, S3};
 use opendal::Operator;
 use serde::{Deserialize, Serialize};
-use tokio::fs::File;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::runtime::Handle;
-use tokio::sync::{Mutex, OnceCell};
+use tokio::sync::OnceCell;
 use tokio::task::block_in_place;
 
 #[derive(Debug)]

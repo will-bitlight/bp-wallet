@@ -1,17 +1,17 @@
 mod async_file_container;
 mod opendal;
-use std::path::PathBuf;
 use std::str::FromStr;
 
 use async_file_container::AsyncFileContainer;
 use bpstd::{Network, StdDescr, TrKey, XpubDerivable};
 use bpwallet::indexers::esplora::Client;
 use bpwallet::persistence::StoreProvider;
-use bpwallet::{FsConfig, NoLayer2, Save, Wallet, WalletCache, WalletData, WalletDescr};
-use opendal::{OpendalConfig, OpendalContainer, OpendalOperator};
+use bpwallet::{NoLayer2, Save, Wallet, WalletCache, WalletData, WalletDescr};
+use opendal::{OpendalConfig, OpendalContainer};
 
 #[tokio::main]
 async fn main() {
+    // Create a wallet for testing
     let user_id = "clvi67aav0009i996zkh6vdlv".to_string();
     let descr = XpubDerivable::from_str("[893ab691/86h/1h/0h]tpubDC3FhuA5HwZWPxRYygVugxmsfqSqqhpLoQi6Bz4YUHFD1eXYqn6bJk9nbDe2DRws82GgGePNEL5XWFtNkSzi4eKAbFpkGcxJX2181CwL6vi/<0;1;9;10>/*").expect("");
     let std_descr: StdDescr = TrKey::from(descr.clone()).into();
@@ -28,6 +28,7 @@ async fn main() {
     //     })
     //     .expect("");
 
+    // Store the wallet by AsyncFileContainer
     let (descr, data, cache) = AsyncFileContainer::make_container(&user_id).await.expect("");
     wallet.make_descr_store_provider(descr);
     wallet.make_data_store_provider(data);
@@ -42,6 +43,7 @@ async fn main() {
     wallet.save().expect("");
     drop(wallet);
 
+    // Load the wallet by OpendalContainer
     let config = OpendalConfig {
         backend: Default::default(),
     };
@@ -53,6 +55,7 @@ async fn main() {
     let layer2: NoLayer2 = container.load().expect("");
     let wallet = Wallet::with(descr, data, cache, layer2);
     dbg!(wallet.balance());
-    
+
+    // Check if the balance is the same
     assert!(balance == wallet.balance());
 }

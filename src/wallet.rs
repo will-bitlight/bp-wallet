@@ -617,6 +617,10 @@ pub mod fs {
             self.cache.store_provider = Some(Box::new(provider));
         }
 
+        pub fn make_l2_store_provider(&mut self, provider: impl StoreProvider<L2> + 'static) {
+            self.layer2.make_data_store_provider(provider);
+        }
+
         pub fn load(
             path: &Path,
             autosave: bool,
@@ -694,9 +698,11 @@ pub mod fs {
                 self.descr.store_provider.as_ref().map(|provider| provider.store(&self.descr));
                 self.data.store_provider.as_ref().map(|provider| provider.store(&self.data));
                 self.cache.store_provider.as_ref().map(|provider| provider.store(&self.cache));
+                self.layer2
+                    .get_data_store_provider()
+                    .map(|provider| self.layer2.store_by_store_provider(provider));
 
                 dbg!("Saved wallet");
-                // TODO: layer2 store
             }
 
             Ok(true)
